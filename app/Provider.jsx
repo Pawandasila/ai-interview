@@ -1,0 +1,53 @@
+"use client";
+
+import { UserDetailContext } from "@/context/UserDetailContext";
+import { supabase } from "@/services/supabaseClient";
+import React, { useContext, useEffect, useState } from "react";
+
+const Provider = ({ children }) => {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true); 
+
+  useEffect(() => {
+    CreateNewUser();
+  }, []);
+
+  const CreateNewUser = async () => {
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+
+    if (authUser) {
+      let { data: Users } = await supabase
+        .from("Users")
+        .select("*")
+        .eq("email", authUser.email);
+
+      if (Users.length === 0) {
+        const { data } = await supabase.from("Users").insert([
+          {
+            name: authUser.user_metadata?.name,
+            email: authUser.email,
+            picture: authUser.user_metadata?.picture,
+          },
+        ]);
+        setUser(data[0]); 
+      } else {
+        setUser(Users[0]);
+      }
+    }
+
+    setLoading(false);
+  };
+
+  return (
+    <UserDetailContext.Provider value={{ user, setUser, loading }}>
+      <div>{children}</div>
+    </UserDetailContext.Provider>
+  );
+};
+
+export default Provider;
+
+export const useUser = ()=>{
+    const context = useContext(UserDetailContext)
+    return context
+}
