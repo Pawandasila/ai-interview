@@ -38,11 +38,38 @@ const InterviewLink = ({ interviewId, formData }) => {
     }
   };
 
+  const interviewUrl = generateInterviewUrl();
+
+  const handleEmailShare = () => {
+    const subject = encodeURIComponent("Interview Invitation");
+    const body = encodeURIComponent(
+      `Hi,\n\nPlease join the interview using the link below:\n${interviewUrl}`
+    );
+    window.open(`mailto:?subject=${subject}&body=${body}`, "_blank");
+  };
+
+  const handleSlackShare = () => {
+    toast.info("Please paste this link in your Slack chat.");
+    navigator.clipboard
+      .writeText(interviewUrl)
+      .then(() => {
+        toast.success("Link copied to clipboard for Slack!");
+      })
+      .catch(() => {
+        toast.error("Failed to copy link for Slack");
+      });
+  };
+
+  const handleWhatsAppShare = () => {
+    const message = encodeURIComponent(
+      `Join the interview using this link: ${interviewUrl}`
+    );
+    window.open(`https://wa.me/?text=${message}`, "_blank");
+  };
+
   return (
     <div className="flex flex-col items-center w-full max-w-lg mx-auto mt-10 px-4">
-        <div>
-            
-        </div>
+      <div></div>
       <div className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-md overflow-hidden">
         {/* Success header */}
         <div className="flex flex-col items-center p-8 bg-gradient-to-b from-gray-50 to-white dark:from-gray-800 dark:to-gray-900">
@@ -124,6 +151,7 @@ const InterviewLink = ({ interviewId, formData }) => {
         </h2>
         <div className="flex flex-wrap gap-3">
           <Button
+            onClick={handleEmailShare}
             variant="outline"
             className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 flex-1 sm:flex-initial"
           >
@@ -131,6 +159,7 @@ const InterviewLink = ({ interviewId, formData }) => {
             <span>Email</span>
           </Button>
           <Button
+            onClick={handleSlackShare}
             variant="outline"
             className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 flex-1 sm:flex-initial"
           >
@@ -138,6 +167,7 @@ const InterviewLink = ({ interviewId, formData }) => {
             <span>Slack</span>
           </Button>
           <Button
+            onClick={handleWhatsAppShare}
             variant="outline"
             className="bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-300 flex-1 sm:flex-initial"
           >
@@ -146,7 +176,6 @@ const InterviewLink = ({ interviewId, formData }) => {
           </Button>
         </div>
       </div>
-
     </div>
   );
 };

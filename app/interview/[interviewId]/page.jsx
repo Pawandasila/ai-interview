@@ -3,7 +3,7 @@ import Image from "next/image";
 import React, { useEffect, useRef, useState, useContext } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { supabase } from "@/services/supabaseClient";
+import { supabase } from "@/services/supabaseClient"
 import { useParams, useRouter } from "next/navigation";
 import { InterviewDataContext } from "@/context/InterviewDataContext";
 import {

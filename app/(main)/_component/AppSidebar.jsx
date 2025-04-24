@@ -10,7 +10,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar";
-import { SidebarOptions } from "@/services/Contexts";
+import { SidebarOptions } from "@/services/Contexts"
 import { PlusIcon, MenuIcon, X } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";

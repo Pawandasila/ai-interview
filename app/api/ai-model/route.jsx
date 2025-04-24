@@ -1,6 +1,7 @@
-import { QUESTION_PROMPT } from "@/services/Contexts";
+import { QUESTION_PROMPT } from "@/services/Contexts"
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
+
 export async function POST(req) {
   const { jobPosition, jobDescription, jobDuration, jobType } =
     await req.json();

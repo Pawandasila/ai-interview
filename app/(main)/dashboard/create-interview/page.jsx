@@ -6,7 +6,7 @@ import React, { useState } from "react";
 import FormContainer from "./_components/FormContainer";
 import QuestionList from "./_components/QuestionList";
 import InteviewLink from "./_components/InterviewLink";
-import { supabase } from "@/services/supabaseClient";
+import { supabase } from "@/services/supabaseClient"
 import { useUser } from "@/app/Provider";
 import { toast } from "sonner";
 import { v4 as uuidv4 } from 'uuid';

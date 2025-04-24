@@ -153,23 +153,72 @@ Key Guidelines:
   },
 };
 
-export const FeedbackPrompt = `{{conversation}}
-Depends on this Interview Conversation between assistant and user,
-Give me feedback for user interview. Give me rating out of 10 for technical Skills,
-Communication, Problem Solving, Experince. Also give me summery in 3 lines
-about the interview and one line to let me know whether is recommanded
-for hire or not with msg. Give me response in JSON format
+
+export const FeedbackPrompt = `
+You are an expert interviewer and career coach. Analyze the following interview conversation between an AI assistant and a candidate.
+
+Please provide two things:
+1. A short JSON feedback summary (used for quick reporting).
+2. A comprehensive evaluation report based on the candidate's performance.
+
+---
+
+### 1. Summary JSON Feedback
+Format:
+\`\`\`json
 {
-  feedback:{
-    rating:{
-      techicalSkills:5,
-      communication:6,
-      problemSolving:4,
-      experince:7
+  "feedback": {
+    "rating": {
+      "technicalSkills": 5,
+      "communication": 6,
+      "problemSolving": 4,
+      "experience": 7
     },
-    summery:<in 3 Line>,
-    Recommendation:"",
-    RecommendationMsg:""
+    "summary": "<Write a 3-line summary of the candidate's interview performance>",
+    "recommendation": "Yes" | "No",
+    "recommendationMsg": "<Brief reason for the recommendation decision>"
   }
 }
-`
+\`\`\`
+
+---
+
+### 2. Detailed Feedback Report
+Format:
+\`\`\`json
+{
+  "overview": "Brief overview of overall performance",
+  "strengths": ["Strength 1", "Strength 2", "Strength 3"],
+  "areas_for_improvement": ["Area 1", "Area 2", "Area 3"],
+  "communication_skills": {
+    "clarity": "Rating from 1-10 with explanation",
+    "conciseness": "Rating from 1-10 with explanation",
+    "confidence": "Rating from 1-10 with explanation"
+  },
+  "technical_assessment": {
+    "knowledge_depth": "Rating from 1-10 with explanation",
+    "problem_solving": "Rating from 1-10 with explanation",
+    "practical_application": "Rating from 1-10 with explanation"
+  },
+  "detailed_question_analysis": [
+    {
+      "question": "The question that was asked",
+      "response_quality": "Rating from 1-10",
+      "feedback": "Specific feedback on this response"
+    }
+    // Repeat for each question
+  ],
+  "overall_score": "Score from 1-100",
+  "recommendations": ["Recommendation 1", "Recommendation 2", "Recommendation 3"]
+}
+\`\`\`
+
+---
+
+Now, based on the following interview conversation, provide both feedback sections above.
+
+### Interview Conversation:
+{{conversation}}
+
+Ensure your feedback is constructive, specific, and actionable. Focus on both strengths and areas for improvement.
+`;
