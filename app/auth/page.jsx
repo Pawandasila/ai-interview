@@ -24,6 +24,7 @@ const LoginPage = () => {
         alert("Failed to login with Google: " + error.message);
       } else {
         console.log("Login initiated successfully");
+        window.location.href = "/dashboard"
       }
     } catch (err) {
       console.error("Unexpected error during login:", err);
