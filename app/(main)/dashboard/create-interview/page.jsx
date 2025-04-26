@@ -6,10 +6,10 @@ import React, { useState } from "react";
 import FormContainer from "./_components/FormContainer";
 import QuestionList from "./_components/QuestionList";
 import InteviewLink from "./_components/InterviewLink";
-import { supabase } from "@/services/supabaseClient"
+import { supabase } from "@/services/supabaseClient";
 import { useUser } from "@/app/Provider";
 import { toast } from "sonner";
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4 } from "uuid";
 
 const Page = () => {
   const router = useRouter();
@@ -20,11 +20,11 @@ const Page = () => {
     jobDuration: "",
     jobType: [],
   });
-  
+
   const [questions, setQuestions] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [interviewId, setInterviewId] = useState();
-  
+
   const { user, loading } = useUser();
 
   const handleInputChange = (field, value) => {
@@ -47,7 +47,7 @@ const Page = () => {
       router.back();
     }
   };
-  
+
   const handleSubmit = async () => {
     if (!questions || questions.length === 0) {
       toast?.error("No questions to submit. Please generate questions first.");
@@ -55,31 +55,41 @@ const Page = () => {
     }
 
     const interviewId = uuidv4();
-    setInterviewId(interviewId)
-    
+    setInterviewId(interviewId);
+
     setSubmitting(true);
     try {
       const { data, error } = await supabase
         .from("interviews")
-        .insert([{ 
-          jobPosition: formData.jobPosition,
-          jobDescription: formData.jobDescription,
-          jobDuration: formData.jobDuration,
-          jobType: formData.jobType,
-          QuestionList: JSON.stringify(questions),
-          userEmail: user?.email || null,
-          interview_id: interviewId
-        }])
+        .insert([
+          {
+            jobPosition: formData.jobPosition,
+            jobDescription: formData.jobDescription,
+            jobDuration: formData.jobDuration,
+            jobType: formData.jobType,
+            QuestionList: JSON.stringify(questions),
+            userEmail: user?.email || null,
+            interview_id: interviewId,
+          },
+        ])
+        .select()
         .select();
-        
+
+      // const userUpdate = await supabase
+      //   .from("Users")
+      //   .update({ credits: Number(user?.credits)-1 })
+      //   .eq("email", user?.email)
+      //   .select();
+
+      //   console.log(userUpdate);
+
       if (error) {
         console.error("Database error:", error);
         throw error;
       }
-      
-      toast?.success("Interview created successfully!");
-      setStep(step+1);
 
+      toast?.success("Interview created successfully!");
+      setStep(step + 1);
     } catch (error) {
       console.error("Error submitting interview:", error);
       toast?.error("Failed to create interview. Please try again.");
@@ -104,7 +114,7 @@ const Page = () => {
             onPrevStep={handlePrevStep}
           />
         );
-  
+
       case 5:
         return (
           <QuestionList
@@ -115,12 +125,10 @@ const Page = () => {
             questions={questions}
           />
         );
-  
+
       case 6:
-        return (
-          <InteviewLink interviewId={interviewId} formData={formData}/>
-        );
-  
+        return <InteviewLink interviewId={interviewId} formData={formData} />;
+
       default:
         return (
           <div className="text-white p-6">
@@ -129,7 +137,6 @@ const Page = () => {
         );
     }
   };
-  
 
   return (
     <div className="mt-10 px-4 sm:px-10 md:px-24">
@@ -148,7 +155,6 @@ const Page = () => {
       <Progress value={step * 20} className="my-5 h-1.5 bg-dark-200" />
 
       {renderStepContent()}
-
     </div>
   );
 };

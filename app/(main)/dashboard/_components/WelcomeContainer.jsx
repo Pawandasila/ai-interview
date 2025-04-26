@@ -23,7 +23,7 @@ const WelcomeContainer = () => {
   );
 
   return (
-    <div className="w-full mx-auto card rounded-xl p-6 sm:p-8">
+    <div className="w-full mx-auto card rounded-2xl p-4 sm:p-8 mb-3">
       {/* User welcome section */}
       <div className="flex flex-col sm:flex-row items-center gap-4 mb-8">
         <div className="relative">
@@ -46,7 +46,7 @@ const WelcomeContainer = () => {
 
 
       {/* System status indicator */}
-      <div className="flex flex-col sm:flex-row justify-between items-center mt-8 bg-gradient-to-r from-dark-300/80 to-dark-200/50 rounded-lg p-4">
+      <div className="flex flex-col sm:flex-row justify-between items-center mt-6 bg-gradient-to-r from-dark-300/80 to-dark-200/50 rounded-lg p-4">
         <div className="flex items-center gap-2 mb-4 sm:mb-0">
           <div className="h-3 w-3 rounded-full bg-success-100 pulse-animation"></div>
           <p className="text-white">System is ready for your interviews</p>

@@ -5,10 +5,11 @@ import { Button } from "@/components/ui/button";
 import { supabase } from "@/services/supabaseClient";
 import { Plus, Video } from "lucide-react";
 import React, { useEffect, useState } from "react";
-import InterviewCard from "./InterviewCard";
-import Link from "next/link";
 
-const LatestInterviewsList = () => {
+import Link from "next/link";
+import InterviewCard from "../dashboard/_components/InterviewCard";
+
+const page = () => {
   const [interviewList, setInterviewList] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const { user } = useUser();
@@ -20,8 +21,7 @@ const LatestInterviewsList = () => {
         .from("interviews")
         .select("*")
         .eq('userEmail', user?.email)
-        .order('created_at', { ascending: false })
-        .limit(6)
+        .order('created_at', { ascending: false });
       
       if (error) {
         console.error("Error fetching interviews:", error);
@@ -45,9 +45,9 @@ const LatestInterviewsList = () => {
     <div className="my-8 animate-fadeIn">
       <div className="flex justify-between items-center mb-5">
         <h2 className="font-bold text-2xl text-white">
-          Previously Created Interviews
+          All Interviews
         </h2>
-        <Link href="/dashboard/create-interview">
+        <Link href="/create-interview">
           <Button className="btn-primary flex items-center gap-1">
             <Plus className="h-4 w-4" /> Create New
           </Button>
@@ -79,7 +79,7 @@ const LatestInterviewsList = () => {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {interviewList.map((interview) => (
-                <InterviewCard 
+                <InterviewCard
                   key={interview.id || interview.interview_id}
                   interview={interview}
                 />
@@ -92,4 +92,4 @@ const LatestInterviewsList = () => {
   );
 };
 
-export default LatestInterviewsList;
+export default page;

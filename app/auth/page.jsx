@@ -3,16 +3,31 @@
 import Link from "next/link";
 import Image from "next/image";
 import { Button } from "@/components/ui/button";
-import {supabase} from "@/services/supabaseClient"
+import { supabase } from "@/services/supabaseClient";
 
 const LoginPage = () => {
   const LoginWithGoogle = async () => {
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: "google",
-    });
+    try {
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: `${window.location.origin}/auth/callback`,
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          }
+        }
+      });
 
-    if (error) {
-      console.error("Error", error);
+      if (error) {
+        console.error("Login Error:", error.message);
+        alert("Failed to login with Google: " + error.message);
+      } else {
+        console.log("Login initiated successfully");
+      }
+    } catch (err) {
+      console.error("Unexpected error during login:", err);
+      alert("An unexpected error occurred during login");
     }
   };
 

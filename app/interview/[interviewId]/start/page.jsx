@@ -3,46 +3,42 @@
 import React, { useContext, useState, useEffect, useRef } from "react";
 import { InterviewDataContext } from "@/context/InterviewDataContext";
 import { UserDetailContext } from "@/context/UserDetailContext";
-import {
-  Timer,
-  Mic,
-  MicOff,
-  Phone,
-  MoreVertical,
-  VolumeX,
-  Volume2,
-  AlertCircle,
-} from "lucide-react";
+import { Timer, Mic, MicOff, Phone, MessageSquare } from "lucide-react";
 import Image from "next/image";
 import { useUser } from "@/app/Provider";
 import Vapi from "@vapi-ai/web";
 import { toast } from "sonner";
 import axios from "axios";
+import { supabase } from "@/services/supabaseClient";
+import { extractAndParseJSON } from "@/utils/jsonParser";
+import { useParams, useRouter } from "next/navigation";
 
 const StartInterview = () => {
   const { interviewInfo, setInterviewInfo } = useContext(InterviewDataContext);
-  const { user, loading } = useUser();
+  const { user } = useUser();
   const vapiRef = useRef(null);
+  const audioContextRef = useRef(null); // Reference to keep track of AudioContext
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isUserActive, setIsUserActive] = useState(false);
-  const [showWarning, setShowWarning] = useState(false);
-  const [warningMessage, setWarningMessage] = useState("");
-  const [muteWarningShown, setMuteWarningShown] = useState(false);
   const [interviewStarted, setInterviewStarted] = useState(false);
-  const [audioVolume, setAudioVolume] = useState(100);
-  const [conversation, setConversation] = useState();
-  const inactivityTimerRef = useRef(null);
+  const [interviewEnded, setInterviewEnded] = useState(false);
+  const [conversation, setConversation] = useState([]);
   const callInitiatedRef = useRef(false);
-  const silenceCountRef = useRef(0);
-  const interviewDurationTimerRef = useRef(null);
+
+  const { interviewId } = useParams();
+  const router = useRouter();
+
+  // Interview timer state
+  const [time, setTime] = useState(0);
+  const [isTimerRunning, setIsTimerRunning] = useState(true);
+
+  // Device control states
+  const [micEnabled, setMicEnabled] = useState(true);
 
   // Initialize Vapi only once
   useEffect(() => {
-    // Only create new instance if one doesn't exist
     if (!vapiRef.current) {
       vapiRef.current = new Vapi(process.env.NEXT_PUBLIC_VAPI_PUBLIC_KEY);
-
-      // Setting up event listeners
       setupEventListeners();
     }
 
@@ -51,201 +47,195 @@ const StartInterview = () => {
     };
   }, []);
 
-  // Setup all event listeners for Vapi
   const setupEventListeners = () => {
     if (!vapiRef.current) return;
 
     vapiRef.current.on("speech-start", () => {
-      console.log("Assistant speech has started.");
       setIsSpeaking(true);
       setIsUserActive(false);
     });
 
     vapiRef.current.on("speech-end", () => {
-      console.log("Assistant speech has ended.");
       setIsSpeaking(false);
       setIsUserActive(true);
-      // Start inactivity timer when it's the user's turn
-      startInactivityTimer();
     });
 
     vapiRef.current.on("call-start", () => {
-      console.log("Call has started.");
       setInterviewStarted(true);
       callInitiatedRef.current = true;
+      // Store AudioContext reference when call starts
+      if (vapiRef.current && vapiRef.current.audioContext) {
+        audioContextRef.current = vapiRef.current.audioContext;
+      }
       toast.success("Voice interview has started! All the best!");
-
-      // Start the interview duration timer
-      startInterviewDurationTimer();
     });
 
-    vapiRef.current.on("call-end", () => {
-      console.log("Call has ended.");
+    vapiRef.current.on("call-end", async () => {
       setInterviewStarted(false);
+      setInterviewEnded(true);
       callInitiatedRef.current = false;
       toast.success("Interview ended");
-      GenerateFeedback();
-      clearInactivityTimer();
-      clearInterviewDurationTimer();
+
+      // Save conversation data immediately upon call end
+      saveConversationToDatabase();
     });
 
     vapiRef.current.on("error", (error) => {
-      console.error("Vapi error:", error);
       toast.error("There was an error with your interview connection.");
-    });
-
-    vapiRef.current.on("transcription", (transcript) => {
-      if (transcript.text.trim().length > 0) {
-        resetInactivityTimer();
-        silenceCountRef.current = 0; // Reset silence counter when user speaks
-      }
+      console.error("Vapi error:", error);
     });
 
     // Capture conversation data
     vapiRef.current.on("message", (message) => {
-      console.log("Vapi message:", message);
-      if (message && message.conversation) {
+      // Handle different possible message formats
+      if (Array.isArray(message)) {
+        setConversation(message);
+      } else if (message && Array.isArray(message.conversation)) {
         setConversation(message.conversation);
+      } else if (message && message.conversation && Array.isArray(message.conversation.messages)) {
+        setConversation(message.conversation.messages);
       }
     });
   };
 
-  // Start timer to enforce job duration limit
-  const startInterviewDurationTimer = () => {
-    if (interviewInfo?.jobDuration) {
-      // Parse the duration - expecting format like "30 minutes" or "1 hour"
-      let durationInMs = 0;
-      const durationStr = interviewInfo.jobDuration.toLowerCase();
+  // Function to save conversation data to database
+  const saveConversationToDatabase = async () => {
+    // Check if we have conversation data in state
+    if (conversation && Array.isArray(conversation) && conversation.length > 0) {
+      try {
+        // Save to database
+        const { error } = await supabase
+          .from("interview-feedback")
+          .upsert({
+            interview_id: interviewId,
+            userName: interviewInfo?.candidateName || "Unknown",
+            userEmail: interviewInfo?.email || "unknown@example.com",
+            feedback: conversation,
+          });
 
-      if (durationStr.includes("minute")) {
-        const minutes = parseInt(durationStr.match(/\d+/)[0]);
-        durationInMs = minutes * 60 * 1000;
-      } else if (durationStr.includes("hour")) {
-        const hours = parseInt(durationStr.match(/\d+/)[0]);
-        durationInMs = hours * 60 * 60 * 1000;
-      }
-
-      if (durationInMs > 0) {
-        console.log(`Setting interview timer for ${durationInMs}ms`);
-        interviewDurationTimerRef.current = setTimeout(() => {
-          // Time's up! End the interview
-          if (callInitiatedRef.current) {
-            toast.info("Interview time is up! Ending the session...");
-
-            // Send a message to wrap up
-            if (vapiRef.current) {
-              vapiRef.current.send(
-                "We've reached the end of our scheduled time. Please wrap up this interview with a final closing statement and feedback."
-              );
-
-              // Give the AI a moment to wrap up before ending the call
-              setTimeout(() => {
-                stopInterview();
-              }, 10000); // 10 seconds to wrap up
-            } else {
-              stopInterview();
-            }
-          }
-        }, durationInMs);
+        if (error) {
+          toast.error("Failed to save interview data");
+          console.error("Database error:", error);
+        }
+      } catch (error) {
+        toast.error("Failed to save interview data");
+        console.error("Error saving conversation:", error);
       }
     }
   };
 
-  const clearInterviewDurationTimer = () => {
-    if (interviewDurationTimerRef.current) {
-      clearTimeout(interviewDurationTimerRef.current);
-      interviewDurationTimerRef.current = null;
-    }
-  };
-
+  // Function to generate feedback
   const GenerateFeedback = async () => {
+    let loadingToast = null;
+  
     try {
-      if (!conversation) {
-        console.log("No conversation data available");
-        toast.error("Unable to generate feedback - missing conversation data");
+      // Show loading toast
+      loadingToast = toast.loading("Generating your interview feedback...");
+  
+      // Check if we have conversation data
+      if (!conversation || !Array.isArray(conversation) || conversation.length === 0) {
+        toast.dismiss(loadingToast);
+        toast.error("No conversation data available for feedback");
         return;
       }
-
-      // Show loading toast
-      const loadingToast = toast.loading(
-        "Generating your interview feedback..."
-      );
-
+  
       // Make the API call to your feedback endpoint
       const result = await axios.post("/api/ai-feedback", {
         conversation: conversation,
       });
-
-      // Process the response
-      console.log("Feedback API response:", result);
-
+  
       if (result.data && result.data.content) {
-        // Clean up the response if it contains markdown code blocks
-        const res = result.data.content;
-        let final_res = res;
-
-        // Remove markdown code block syntax if present
-        if (res.includes("```json")) {
-          final_res = res.replace("```json", "").replace("```", "").trim();
-        }
-
-        try {
-          // Try to parse as JSON if it's in JSON format
-          const parsedFeedback = JSON.parse(final_res);
-          console.log("Parsed feedback:", parsedFeedback);
-
-          // Store the feedback in the interview context
-          setInterviewInfo((prev) => ({
-            ...prev,
-            feedback: parsedFeedback,
-          }));
-
-          // Dismiss loading toast and show success
+        const content = result.data.content;
+        const jsonData = extractAndParseJSON(content);
+  
+        if (jsonData) {
           toast.dismiss(loadingToast);
-          toast.success("Feedback generated successfully!");
-
-          // Navigate to feedback page or display feedback
-          // If you have a router: router.push('/feedback');
-        } catch (parseError) {
-          console.log("Feedback is not in JSON format:", final_res);
-          // Handle text feedback
-          setInterviewInfo((prev) => ({
-            ...prev,
-            feedback: { text: final_res },
-          }));
-
+          loadingToast = null;
+  
+          // Insert into Supabase
+          const { error } = await supabase
+            .from("interview-feedback")
+            .update({ 
+              ai_feedback: jsonData,
+            })
+            .eq('interview_id', interviewId);
+            
+          if (error) {
+            toast.error("Error saving feedback");
+            console.error("Database update error:", error);
+          } else {
+            toast.success("Feedback generated successfully!");
+  
+            // Update interview info with feedback
+            setInterviewInfo((prev) => ({
+              ...prev,
+              feedback: jsonData,
+            }));
+            
+            // Redirect to feedback page
+            router.push(`/interview/${interviewId}/feedback`);
+          }
+        } else {
           toast.dismiss(loadingToast);
-          toast.success("Feedback generated!");
+          toast.error("Could not parse feedback data");
         }
       } else {
         toast.dismiss(loadingToast);
         toast.error("Failed to generate feedback");
       }
     } catch (error) {
-      console.error("Error generating feedback:", error);
-      toast.dismiss();
-      toast.error("Error generating feedback. Please try again.");
+      if (loadingToast) {
+        toast.dismiss(loadingToast);
+      }
+      toast.error("Error generating feedback");
+      console.error("Feedback generation error:", error);
     }
   };
 
-  // Cleanup function for Vapi
+  // Function to stop the interview
+  const stopInterview = async () => {
+    if (vapiRef.current) {
+      try {
+        if (callInitiatedRef.current) {
+          vapiRef.current.stop();
+          callInitiatedRef.current = false;
+          setInterviewEnded(true);
+          toast.success("Interview ended");
+
+          // Explicitly save conversation when stopping
+          await saveConversationToDatabase();
+        }
+      } catch (e) {
+        console.error("Error stopping interview:", e);
+        toast.error("Error stopping interview");
+      }
+    }
+  };
+
+  // Proper cleanup of AudioContext to prevent the "Cannot close a closed AudioContext" error
   const cleanupVapi = () => {
     if (vapiRef.current) {
-      // Stop any ongoing call
       try {
         if (callInitiatedRef.current) {
           vapiRef.current.stop();
           callInitiatedRef.current = false;
         }
+        
+        // Only close the AudioContext if it exists and isn't already closed
+        if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+          try {
+            audioContextRef.current.close();
+          } catch (err) {
+            console.warn("AudioContext already closed:", err);
+          }
+        }
+        
+        audioContextRef.current = null;
       } catch (e) {
-        console.error("Error stopping Vapi:", e);
+        console.error("Cleanup error:", e);
       }
-
-      // Remove all event listeners
       vapiRef.current.removeAllListeners();
     }
-    clearInactivityTimer();
-    clearInterviewDurationTimer();
   };
 
   // Start the interview when data is available
@@ -254,16 +244,16 @@ const StartInterview = () => {
       interviewInfo?.QuestionList &&
       !interviewStarted &&
       vapiRef.current &&
-      !callInitiatedRef.current
+      !callInitiatedRef.current &&
+      !interviewEnded
     ) {
-      // Add a small delay to ensure any previous instances are fully cleaned up
       const timer = setTimeout(() => {
         startCall();
       }, 300);
 
       return () => clearTimeout(timer);
     }
-  }, [interviewInfo, interviewStarted]);
+  }, [interviewInfo]);
 
   const startCall = () => {
     try {
@@ -279,11 +269,7 @@ const StartInterview = () => {
       callInitiatedRef.current = true;
 
       const questionArray = JSON.parse(interviewInfo.QuestionList);
-
-      // Now we can use .map on the parsed array
       const questionList = questionArray.map((q) => q.question).join(", ");
-
-      console.log("Processed question list:", questionList);
 
       // Add job duration info to the assistant's context
       let durationInfo = "";
@@ -293,12 +279,7 @@ const StartInterview = () => {
 
       const assistantOptions = {
         name: "AI Recruiter",
-        firstMessage:
-          "Hi " +
-          interviewInfo?.candidateName +
-          ", how are you? Ready for your interview on " +
-          interviewInfo?.jobPosition +
-          "?",
+        firstMessage: `Hi ${interviewInfo?.candidateName}, how are you? Ready for your interview on ${interviewInfo?.jobPosition}?`,
         transcriber: {
           provider: "deepgram",
           model: "nova-2",
@@ -318,30 +299,14 @@ const StartInterview = () => {
         You are an AI voice assistant conducting interviews.
         Your job is to ask candidates provided interview questions, assess their responses.
         ${durationInfo}
-        Begin the conversation with a friendly introduction, setting a relaxed yet professional tone. Example:
-        "Hey there! Welcome to your ${interviewInfo.jobPosition} interview, Let's get started with a few questions!"
-        Ask one question at a time and wait for the candidate's response before proceeding. Keep the questions clear and concise. Below Are the questions ask one by one:
-        Questions:${questionList}
-        If the candidate struggles, offer hints or rephrase the question without giving away the answer. Example:
-        "Need a hint? Think about how React tracks component updates!"
-        Provide brief, encouraging feedback after each answer. Example:
-        "Nice! That's a solid answer."
-        "Hmm, not quite! Want to try again?"
-        Keep the conversation natural and engaging—use casual phrases like "Alright, next up..." or "Let's tackle a tricky one!"
-        If you notice that the candidate hasn't responded for a while (there's silence), gently prompt them: "Are you still thinking about the question? Would you like me to repeat it or provide a hint?"
-        If you detect that the candidate has muted their microphone, say: "I notice your microphone is muted. Please unmute yourself so we can continue with the interview."
-        Be mindful of time. If you're approaching the end of the scheduled time, start wrapping up by saying "We're almost out of time, let's move to a final question."
-        After 5-7 questions or near the end of the allotted time, wrap up the interview smoothly by summarizing their performance. Example:
-        "That was great! You handled some tough questions well. Keep sharpening your skills!"
-        End on a positive note:
-        "Thanks for chatting! Hope to see you crushing projects soon!"
-        Key Guidelines:
-        ✅ Be friendly, engaging, and witty
-        ✅ Keep responses short and natural, like a real conversation
-        ✅ Adapt based on the candidate's confidence level
-        ✅ Pay attention to extended silences and offer help if needed
-        ✅ Ensure the interview remains focused on the job position
-              `.trim(),
+        Begin the conversation with a friendly introduction, setting a relaxed yet professional tone.
+        Ask one question at a time and wait for the candidate's response before proceeding.
+        Questions: ${questionList}
+        If the candidate struggles, offer hints or rephrase the question without giving away the answer.
+        Provide brief, encouraging feedback after each answer.
+        Keep the conversation natural and engaging.
+        End on a positive note.
+        `.trim(),
             },
           ],
         },
@@ -349,103 +314,25 @@ const StartInterview = () => {
 
       vapiRef.current.start(assistantOptions);
     } catch (error) {
-      console.error("Error parsing QuestionList or starting call:", error);
+      console.error("Interview start error:", error);
       toast.error("Failed to start the interview. Please try again.");
       callInitiatedRef.current = false;
     }
   };
 
-  const startInactivityTimer = () => {
-    clearInactivityTimer();
-    inactivityTimerRef.current = setTimeout(() => {
-      if (isUserActive && !isSpeaking) {
-        silenceCountRef.current += 1;
-
-        // Different messages based on how many times we've detected silence
-        let silenceMessage;
-        if (silenceCountRef.current === 1) {
-          silenceMessage =
-            "I notice you've been quiet. Would you like me to repeat the question or provide more clarification?";
-        } else if (silenceCountRef.current === 2) {
-          silenceMessage =
-            "Still thinking? Take your time, or let me know if you'd prefer to move on to another question.";
-        } else {
-          silenceMessage =
-            "It seems like you might be having trouble with this question. Let's try a different approach or move to the next question.";
-        }
-
-        showUserWarning(
-          "You've been quiet for a while. Would you like me to repeat the question?"
-        );
-
-        // Trigger AI to ask if user needs the question repeated
-        if (vapiRef.current && callInitiatedRef.current) {
-          vapiRef.current.send(silenceMessage);
-        }
-
-        // Restart the inactivity timer
-        startInactivityTimer();
-      }
-    }, 10000); // 10 seconds of silence (shortened from 15 for more responsiveness)
-  };
-
-  const resetInactivityTimer = () => {
-    clearInactivityTimer();
-    if (isUserActive) {
-      startInactivityTimer();
-    }
-  };
-
-  const clearInactivityTimer = () => {
-    if (inactivityTimerRef.current) {
-      clearTimeout(inactivityTimerRef.current);
-      inactivityTimerRef.current = null;
-    }
-  };
-
-  const showUserWarning = (message) => {
-    setWarningMessage(message);
-    setShowWarning(true);
-    setTimeout(() => {
-      setShowWarning(false);
-    }, 5000);
-  };
-
-  // Interview timer state
-  const [time, setTime] = useState(0);
-  const [isTimerRunning, setIsTimerRunning] = useState(true);
-
-  // Device control states
-  const [micEnabled, setMicEnabled] = useState(true);
-
-  // Handle microphone toggle
+  // Toggle microphone
   const toggleMicrophone = () => {
     const newMicState = !micEnabled;
     setMicEnabled(newMicState);
 
-    if (!newMicState && interviewStarted && !muteWarningShown) {
+    if (!newMicState && interviewStarted) {
       if (vapiRef.current && callInitiatedRef.current) {
         setTimeout(() => {
           vapiRef.current.send(
-            "I notice your microphone is muted. For a proper interview experience, please unmute yourself so I can hear your responses."
+            "I notice your microphone is muted. Please unmute yourself so I can hear your responses."
           );
         }, 100);
-        setMuteWarningShown(true);
-        showUserWarning("Please don't mute yourself during the interview");
       }
-    } else if (newMicState) {
-      setMuteWarningShown(false);
-    }
-  };
-
-  // Handle volume change
-  const handleVolumeChange = (e) => {
-    const newVolume = parseInt(e.target.value);
-    setAudioVolume(newVolume);
-    // If vapi has a volume control method, you would use it here
-    if (vapiRef.current) {
-      // This is a placeholder - implement if Vapi has volume control API
-      // vapiRef.current.setVolume(newVolume / 100);
     }
   };
 
@@ -474,21 +361,6 @@ const StartInterview = () => {
     return () => clearInterval(interval);
   }, [isTimerRunning, interviewStarted]);
 
-  const stopInterview = () => {
-    if (vapiRef.current && callInitiatedRef.current) {
-      vapiRef.current.stop();
-      callInitiatedRef.current = false;
-
-      // Directly call GenerateFeedback to ensure it runs
-      setTimeout(() => {
-        if (conversation) {
-          GenerateFeedback();
-        }
-      }, 500);
-    }
-    setInterviewStarted(false);
-  };
-
   // Cleanup on component unmount
   useEffect(() => {
     return () => {
@@ -506,44 +378,54 @@ const StartInterview = () => {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-80px)]">
+    <div className="flex flex-col h-full min-h-[calc(100vh-80px)]">
       {/* Header with timer and interview info */}
-      <div className="p-3 sm:p-4 lg:px-8 border-b border-dark-100 bg-dark-300 flex items-center justify-between">
+      <div className="p-3 md:p-4 border-b border-dark-100 bg-dark-300 flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-col">
-          <h2 className="font-bold text-base sm:text-lg text-light-100">
+          <h2 className="font-bold text-base md:text-lg text-light-100 truncate max-w-xs md:max-w-md">
             AI Interview: {interviewInfo.jobPosition}
           </h2>
           <p className="text-xs text-light-300">
             Duration: {interviewInfo.jobDuration || "Not specified"}
           </p>
         </div>
-        <div className="flex gap-2 items-center bg-dark-200 py-1 px-3 rounded-full">
-          <Timer className="size-4 text-primary-200" />
-          <span className="text-light-200 font-mono">{formatTime(time)}</span>
+        <div className="flex gap-2 items-center bg-dark-200 py-1 px-3 rounded-full shrink-0">
+          <Timer className="size-3 md:size-4 text-primary-200" />
+          <span className="text-light-200 font-mono text-xs md:text-sm">{formatTime(time)}</span>
         </div>
       </div>
 
-      {/* Main content area */}
-      <div className="flex-grow p-3 sm:p-6 lg:px-12 xl:px-24 flex flex-col relative">
-        {/* Warning message */}
-        {showWarning && (
-          <div className="absolute top-4 left-0 right-0 mx-auto w-max z-10 bg-yellow-900/80 text-yellow-100 px-4 py-2 rounded-md flex items-center animate-bounce">
-            <AlertCircle className="size-4 mr-2" />
-            <span>{warningMessage}</span>
+      {/* Main content area with padding that adjusts for the fixed bottom bar */}
+      <div className="flex-grow p-3 md:p-6 flex flex-col pb-24 relative">
+        {/* Post-Interview UI - Show when interview has ended */}
+        {interviewEnded && (
+          <div className="bg-dark-200 rounded-lg p-3 md:p-4 mb-4 md:mb-6 border border-primary-200">
+            <h2 className="text-lg md:text-xl font-semibold mb-2 text-light-100">
+              Interview Completed
+            </h2>
+            <p className="text-sm md:text-base text-light-200 mb-3 md:mb-4">
+              The interview has ended. You can now generate feedback.
+            </p>
+            <button
+              onClick={GenerateFeedback}
+              className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded text-sm md:text-base transition-colors duration-200"
+            >
+              Generate Interview Feedback
+            </button>
           </div>
         )}
 
-        {/* Participants grid */}
-        <div className="flex-grow grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 md:gap-6 lg:gap-8 mb-16 sm:mb-8">
-          {/* AI Interviewer Video Box */}
+        {/* Participants grid - responsive for mobile */}
+        <div className="flex-grow grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 mb-6">
+          {/* AI Interviewer Box */}
           <div
             className={`bg-dark-200 rounded-lg border ${
               isSpeaking
                 ? "border-blue-500 shadow-lg shadow-blue-500/20"
                 : "border-dark-100"
-            } overflow-hidden relative flex flex-col transition-all duration-300`}
+            } overflow-hidden relative flex flex-col transition-all duration-300 h-40 md:h-auto`}
           >
-            <div className="absolute top-2 left-2 bg-dark-300/80 backdrop-blur-sm text-light-200 text-xs py-1 px-2 rounded-md">
+            <div className="absolute top-2 left-2 bg-dark-300/80 text-light-200 text-xs py-1 px-2 rounded-md">
               AI Interviewer
             </div>
 
@@ -553,10 +435,10 @@ const StartInterview = () => {
               </div>
             )}
 
-            <div className="flex-grow flex items-center justify-center">
+            <div className="flex-grow flex items-center justify-center p-2">
               <div className="flex flex-col items-center">
                 <div
-                  className={`relative w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 bg-blue-700 rounded-full flex items-center justify-center ${
+                  className={`relative w-20 h-20 md:w-28 md:h-28 bg-blue-700 rounded-full flex items-center justify-center ${
                     isSpeaking ? "ring-4 ring-blue-500 ring-opacity-50" : ""
                   }`}
                 >
@@ -569,33 +451,23 @@ const StartInterview = () => {
                       isSpeaking ? "animate-pulse" : ""
                     }`}
                   />
-                  {isSpeaking && (
-                    <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2">
-                      <div className="flex space-x-1">
-                        <div className="w-1 h-3 bg-blue-400 rounded-full animate-soundwave"></div>
-                        <div className="w-1 h-5 bg-blue-400 rounded-full animate-soundwave animation-delay-200"></div>
-                        <div className="w-1 h-7 bg-blue-400 rounded-full animate-soundwave animation-delay-150"></div>
-                        <div className="w-1 h-4 bg-blue-400 rounded-full animate-soundwave animation-delay-300"></div>
-                        <div className="w-1 h-2 bg-blue-400 rounded-full animate-soundwave animation-delay-100"></div>
-                      </div>
-                    </div>
-                  )}
                 </div>
-                <h3 className="mt-3 text-light-100 font-medium">Mrs. Chintu</h3>
-                <p className="text-xs text-primary-200">AI Interviewer</p>
+                <h3 className="mt-2 md:mt-3 text-light-100 font-medium text-sm md:text-base">
+                  AI Interviewer
+                </h3>
               </div>
             </div>
           </div>
 
-          {/* Candidate Video Box */}
+          {/* Candidate Box */}
           <div
             className={`bg-dark-200 rounded-lg border ${
               isUserActive
                 ? "border-green-500 shadow-lg shadow-green-500/20"
                 : "border-dark-100"
-            } overflow-hidden relative flex flex-col transition-all duration-300`}
+            } overflow-hidden relative flex flex-col transition-all duration-300 h-40 md:h-auto`}
           >
-            <div className="absolute top-2 left-2 bg-dark-300/80 backdrop-blur-sm text-light-200 text-xs py-1 px-2 rounded-md">
+            <div className="absolute top-2 left-2 bg-dark-300/80 text-light-200 text-xs py-1 px-2 rounded-md">
               Candidate
             </div>
 
@@ -606,16 +478,16 @@ const StartInterview = () => {
             )}
 
             {!micEnabled && (
-              <div className="absolute top-10 right-2 bg-red-600/80 text-white text-xs py-1 px-2 rounded-md flex items-center">
+              <div className="absolute top-2 right-2 md:top-10 md:right-2 bg-red-600/80 text-white text-xs py-1 px-2 rounded-md flex items-center">
                 <MicOff className="size-3 mr-1" /> Muted
               </div>
             )}
 
-            <div className="flex-grow flex items-center justify-center">
+            <div className="flex-grow flex items-center justify-center p-2">
               <div className="flex flex-col items-center">
                 {user?.picture ? (
                   <div
-                    className={`relative w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 rounded-full flex items-center justify-center ${
+                    className={`relative w-20 h-20 md:w-28 md:h-28 rounded-full flex items-center justify-center ${
                       isUserActive
                         ? "ring-4 ring-green-500 ring-opacity-50"
                         : ""
@@ -630,54 +502,31 @@ const StartInterview = () => {
                         !micEnabled ? "opacity-70" : ""
                       }`}
                     />
-                    {isUserActive && micEnabled && (
-                      <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2">
-                        <div className="flex space-x-1">
-                          <div className="w-1 h-2 bg-green-400 rounded-full animate-soundwave"></div>
-                          <div className="w-1 h-4 bg-green-400 rounded-full animate-soundwave animation-delay-200"></div>
-                          <div className="w-1 h-3 bg-green-400 rounded-full animate-soundwave animation-delay-150"></div>
-                          <div className="w-1 h-5 bg-green-400 rounded-full animate-soundwave animation-delay-300"></div>
-                          <div className="w-1 h-3 bg-green-400 rounded-full animate-soundwave animation-delay-100"></div>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 ) : (
                   <div
-                    className={`w-24 h-24 sm:w-28 sm:h-28 md:w-32 md:h-32 bg-green-600 rounded-full flex items-center justify-center border-2 border-green-500 ${
+                    className={`w-20 h-20 md:w-28 md:h-28 bg-green-600 rounded-full flex items-center justify-center border-2 border-green-500 ${
                       isUserActive
                         ? "ring-4 ring-green-500 ring-opacity-50"
                         : ""
                     } ${!micEnabled ? "opacity-70" : ""}`}
                   >
-                    <span className="text-2xl font-bold text-dark-100">
+                    <span className="text-xl md:text-2xl font-bold text-dark-100">
                       {interviewInfo?.candidateName?.[0]?.toUpperCase() || "?"}
                     </span>
-                    {isUserActive && micEnabled && (
-                      <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2">
-                        <div className="flex space-x-1">
-                          <div className="w-1 h-2 bg-green-400 rounded-full animate-soundwave"></div>
-                          <div className="w-1 h-4 bg-green-400 rounded-full animate-soundwave animation-delay-200"></div>
-                          <div className="w-1 h-3 bg-green-400 rounded-full animate-soundwave animation-delay-150"></div>
-                          <div className="w-1 h-5 bg-green-400 rounded-full animate-soundwave animation-delay-300"></div>
-                          <div className="w-1 h-3 bg-green-400 rounded-full animate-soundwave animation-delay-100"></div>
-                        </div>
-                      </div>
-                    )}
                   </div>
                 )}
-                <h3 className="mt-3 text-light-100 font-medium">
-                  {interviewInfo?.candidateName || "Connecting..."}
+                <h3 className="mt-2 md:mt-3 text-light-100 font-medium text-sm md:text-base truncate max-w-full px-2">
+                  {interviewInfo?.candidateName || "Candidate"}
                 </h3>
-                <p className="text-xs text-green-400">You</p>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Controls bar */}
-        <div className="fixed bottom-0 left-0 right-0 sm:relative bg-dark-300 sm:bg-transparent border-t border-dark-100 sm:border-0 py-3 px-4 sm:py-2">
-          <div className="flex justify-center sm:justify-center items-center gap-2 sm:gap-4">
+        {/* Controls bar - fixed at bottom with improved mobile styling */}
+        <div className="fixed bottom-0 left-0 right-0 bg-dark-300 border-t border-dark-100 py-3 px-4 z-10">
+          <div className="max-w-screen-xl mx-auto flex justify-center items-center gap-3 md:gap-4">
             {/* Mic toggle */}
             <button
               onClick={toggleMicrophone}
@@ -685,79 +534,27 @@ const StartInterview = () => {
                 micEnabled
                   ? "bg-dark-200 hover:bg-dark-100"
                   : "bg-red-600 hover:bg-red-700"
-              } 
-                p-3 sm:p-4 rounded-full transition-colors duration-200 relative`}
+              } p-3 md:p-4 rounded-full transition-colors duration-200`}
+              aria-label="Toggle microphone"
             >
               {micEnabled ? (
-                <Mic className="size-5 sm:size-6" />
+                <Mic className="size-5 md:size-6" />
               ) : (
-                <MicOff className="size-5 sm:size-6" />
-              )}
-              {!micEnabled && interviewStarted && (
-                <span className="absolute -top-1 -right-1 h-3 w-3 bg-red-500 rounded-full animate-ping"></span>
+                <MicOff className="size-5 md:size-6" />
               )}
             </button>
-
-            {/* Volume slider - only on desktop */}
-            <div className="hidden sm:flex items-center bg-dark-200 rounded-full px-3 py-2 gap-2">
-              {audioVolume === 0 ? (
-                <VolumeX className="size-4 text-light-300" />
-              ) : (
-                <Volume2 className="size-4 text-light-300" />
-              )}
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={audioVolume}
-                onChange={handleVolumeChange}
-                className="w-24 h-1 bg-dark-100 rounded-lg appearance-none cursor-pointer"
-              />
-            </div>
 
             {/* End call button */}
             <button
-              className="bg-red-600 hover:bg-red-700 p-3 sm:p-4 rounded-full transition-colors duration-200"
+              className="bg-red-600 hover:bg-red-700 p-3 md:p-4 rounded-full transition-colors duration-200"
               onClick={stopInterview}
+              aria-label="End interview"
             >
-              <Phone className="size-5 sm:size-6 rotate-135" />
-            </button>
-
-            {/* Mobile-only menu button */}
-            <button className="sm:hidden absolute right-4 bg-dark-200 hover:bg-dark-100 p-3 rounded-full transition-colors duration-200">
-              <MoreVertical className="size-5" />
+              <Phone className="size-5 md:size-6 rotate-135" />
             </button>
           </div>
         </div>
       </div>
-
-      {/* Add this to your global CSS or in a style tag */}
-      <style jsx>{`
-        @keyframes soundwave {
-          0%,
-          100% {
-            transform: scaleY(0.5);
-          }
-          50% {
-            transform: scaleY(1);
-          }
-        }
-        .animate-soundwave {
-          animation: soundwave 1s infinite;
-        }
-        .animation-delay-100 {
-          animation-delay: 0.1s;
-        }
-        .animation-delay-150 {
-          animation-delay: 0.15s;
-        }
-        .animation-delay-200 {
-          animation-delay: 0.2s;
-        }
-        .animation-delay-300 {
-          animation-delay: 0.3s;
-        }
-      `}</style>
     </div>
   );
 };

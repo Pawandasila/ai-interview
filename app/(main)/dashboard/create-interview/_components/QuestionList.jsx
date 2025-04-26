@@ -24,6 +24,7 @@ const QuestionList = ({ onPrevStep, formData, onSubmit, questions, setQuestions 
     
   
     const GenerateQuestion = async () => {
+      console.log(formData)
       setLoading(true);
       setError(null);
       if (hasGenerated) return;
@@ -31,18 +32,46 @@ const QuestionList = ({ onPrevStep, formData, onSubmit, questions, setQuestions 
         const response = await axios.post("/api/ai-model", {
           ...formData,
         });
-  
+    
         const rawContent = response.data.content;
-        if(rawContent){
-            toast.success("Questions Generated Successfully");
+        
+        // First check if there's valid content before proceeding
+        if (!rawContent) {
+          throw new Error("Empty response received");
         }
-        const cleaned = rawContent.replace(/```json\s*|\s*```/g, "").trim();
-        const parsed = JSON.parse(cleaned);
-  
-        setQuestions(parsed.interviewQuestions);
-        setHasGenerated(true);
+        
+        let parsedQuestions;
+        try {
+          // Try direct parsing first in case it's already JSON
+          parsedQuestions = JSON.parse(rawContent);
+        } catch (parseError) {
+          // If direct parsing fails, try to extract JSON from markdown code blocks
+          const jsonMatch = rawContent.match(/```(?:json)?\s*([\s\S]*?)```/);
+          if (jsonMatch && jsonMatch[1]) {
+            parsedQuestions = JSON.parse(jsonMatch[1].trim());
+          } else {
+            // If no code blocks found, look for anything that might be JSON
+            const possibleJson = rawContent.match(/\{[\s\S]*\}/);
+            if (possibleJson) {
+              parsedQuestions = JSON.parse(possibleJson[0]);
+            } else {
+              throw new Error("Could not find valid JSON in the response");
+            }
+          }
+        }
+        
+        // Validate the parsed structure
+        if (parsedQuestions && parsedQuestions.interviewQuestions) {
+          setQuestions(parsedQuestions.interviewQuestions);
+          setHasGenerated(true);
+          toast.success("Questions Generated Successfully");
+        } else {
+          throw new Error("Response doesn't contain expected interview questions format");
+        }
       } catch (error) {
         console.error("Error while generating AI response", error);
+        // Only show toast on error, not on success
+        toast.error("Failed to generate questions");
         setError("Failed to generate questions. Please try again.");
       } finally {
         setLoading(false);

@@ -9,20 +9,27 @@ const InterviewLayout = ({ children }) => {
 
   useEffect(() => {
     const storedInfo = localStorage.getItem("interviewInfo");
-    if (storedInfo) {
-      setInterviewInfoState(JSON.parse(storedInfo));
+    if (storedInfo && storedInfo !== "undefined") {
+      try {
+        setInterviewInfoState(JSON.parse(storedInfo));
+      } catch (error) {
+        console.error("Error parsing interview info from localStorage:", error);
+        localStorage.removeItem("interviewInfo");
+      }
     }
   }, []);
 
   const setInterviewInfo = (info) => {
     setInterviewInfoState(info);
-    localStorage.setItem("interviewInfo", JSON.stringify(info));
+    if (info) {
+      localStorage.setItem("interviewInfo", JSON.stringify(info));
+    }
   };
 
   return (
     <InterviewDataContext.Provider value={{ interviewInfo, setInterviewInfo }}>
       <div className="h-full">
-        <InterviewHeader />
+        {/* <InterviewHeader /> */}
         {children}
       </div>
     </InterviewDataContext.Provider>
