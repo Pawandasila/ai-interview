@@ -14,7 +14,7 @@ export const supabase = createClient(
             cookieOptions: {
                 secure: isProduction,
                 sameSite: 'lax',
-                path: '/',
+                path: '/dashboard',
                 maxAge: 60 * 60 * 24 * 7 // 1 week
             }
         }
